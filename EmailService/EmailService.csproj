@@ -23,6 +23,5 @@
 	<ItemGroup>
 	  <Folder Include="Configuration\" />
 	  <Folder Include="Jobs\" />
-	  <Folder Include="Services\Interfaces\" />
 	</ItemGroup>
 </Project>
