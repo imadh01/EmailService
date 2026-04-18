@@ -2,6 +2,7 @@
 
 public class EmailSettings
 {
+    public const string SectionName = "EmailSettings";
     public string EmailHost { get; set; } = string.Empty;
 
     public int EmailPort { get; set; }
