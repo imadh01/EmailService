@@ -200,13 +200,13 @@ cd EmailService
 
 ### 3. Set up the database
 
-Run `docs/sql/01_database_setup.sql` in SSMS.
+Run `docs/sql/Database_setup.sql` in SSMS.
 This creates the `EmailService` database, both tables, indexes, and sample data.
 
 ### 4. Configure appsettings.json
 
 ```bash
-cp appsettings.example.json appsettings.json
+cp appsettings.json
 ```
 
 Fill in your SMTP credentials and connection string.
