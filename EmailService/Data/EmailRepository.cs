@@ -19,54 +19,60 @@ public class EmailRepository : IEmailRepository
     {
         try
         {
-            // Begin transaction — everything inside is atomic
-            using var transaction = await _context.Database
-                .BeginTransactionAsync(cancellationToken);
+            // CreateExecutionStrategy() wraps our manual transaction
+            // in a retriable unit — satisfies SqlServerRetryingExecutionStrategy
+            var strategy = _context.Database.CreateExecutionStrategy();
 
-            try
+            return await strategy.ExecuteAsync(async () =>
             {
-                var pending = await _context.WorkflowLogs
-                    .Where(w => w.Status == EmailStatus.Pending.ToString())
-                    .OrderBy(w => w.CreatedDate)
-                    .Take(batchSize)
-                    .ToListAsync(cancellationToken);
+                using var transaction = await _context.Database
+                    .BeginTransactionAsync(cancellationToken);
 
-                if (pending.Count == 0)
+                try
                 {
+                    var pending = await _context.WorkflowLogs
+                        .Where(w => w.Status == EmailStatus.Pending.ToString())
+                        .OrderBy(w => w.CreatedDate)
+                        .Take(batchSize)
+                        .ToListAsync(cancellationToken);
+
+                    if (pending.Count == 0)
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                        _logger.LogDebug("No pending emails found");
+                        return Enumerable.Empty<PendingEmail>();
+                    }
+
+                    foreach (var log in pending)
+                    {
+                        log.Status = EmailStatus.Processing.ToString();
+                        log.LastAttemptDate = DateTime.UtcNow;
+                    }
+
+                    await _context.SaveChangesAsync(cancellationToken);
                     await transaction.CommitAsync(cancellationToken);
-                    _logger.LogDebug("No pending emails found");
-                    return Enumerable.Empty<PendingEmail>();
+
+                    var result = pending.Select(p => new PendingEmail
+                    {
+                        LogId = p.WorkflowLogId,
+                        SourceSystem = p.SourceSystem,
+                        Subject = p.Subject,
+                        Body = p.Body,
+                        CreatedDate = p.CreatedDate
+                    }).ToList();
+
+                    _logger.LogInformation(
+                        "Locked {Count} pending emails for processing",
+                        result.Count);
+
+                    return result;
                 }
-
-                foreach (var log in pending)
+                catch
                 {
-                    log.Status = EmailStatus.Processing.ToString();
-                    log.LastAttemptDate = DateTime.UtcNow;
+                    await transaction.RollbackAsync(cancellationToken);
+                    throw;
                 }
-
-                await _context.SaveChangesAsync(cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
-
-                var result = pending.Select(p => new PendingEmail
-                {
-                    LogId = p.WorkflowLogId,
-                    SourceSystem = p.SourceSystem,
-                    Subject = p.Subject,
-                    Body = p.Body,
-                    CreatedDate = p.CreatedDate
-                }).ToList();
-
-                _logger.LogInformation(
-                    "Locked {Count} pending emails for processing",
-                    result.Count);
-
-                return result;
-            }
-            catch
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                throw;
-            }
+            });
         }
         catch (Exception ex)
         {
